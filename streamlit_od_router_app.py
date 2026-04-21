@@ -1,4 +1,3 @@
-import pytz
 import io
 import os
 import time
@@ -9,6 +8,7 @@ from datetime import datetime
 import pandas as pd
 import geopandas as gpd
 import polyline
+import pytz
 import requests
 import streamlit as st
 from shapely.geometry import LineString
@@ -50,15 +50,31 @@ def sample_template_bytes() -> bytes:
     return buffer.getvalue()
 
 
-def convert_to_utc_timestamp(local_date_str: str, local_time_str: str, timezone_name: str = "US/Eastern") -> int:
+def convert_to_utc_timestamp(
+    local_date_str: str,
+    local_time_str: str,
+    timezone_name: str = "US/Eastern",
+) -> int:
     local_tz = pytz.timezone(timezone_name)
-    naive_time = datetime.strptime(f"{local_date_str} {local_time_str}", "%Y-%m-%d %H:%M:%S")
+    naive_time = datetime.strptime(
+        f"{local_date_str} {local_time_str}",
+        "%Y-%m-%d %H:%M:%S",
+    )
     local_time = local_tz.localize(naive_time, is_dst=None)
     utc_time = local_time.astimezone(pytz.utc)
     return int(utc_time.timestamp())
 
 
-def get_route(origin_lat, origin_lon, dest_lat, dest_lon, mode, api_key, arrival_time=None, transit_mode=None):
+def get_route(
+    origin_lat,
+    origin_lon,
+    dest_lat,
+    dest_lon,
+    mode,
+    api_key,
+    arrival_time=None,
+    transit_mode=None,
+):
     origin = f"{origin_lat},{origin_lon}"
     destination = f"{dest_lat},{dest_lon}"
 
@@ -68,8 +84,10 @@ def get_route(origin_lat, origin_lon, dest_lat, dest_lon, mode, api_key, arrival
         "mode": mode,
         "key": api_key,
     }
+
     if arrival_time is not None:
         params["arrival_time"] = arrival_time
+
     if mode == "transit" and transit_mode:
         params["transit_mode"] = transit_mode
 
@@ -82,7 +100,10 @@ def get_route(origin_lat, origin_lon, dest_lat, dest_lon, mode, api_key, arrival
     try:
         data = response.json()
     except Exception:
-        return {"status": "REQUEST_FAILED", "error_message": "Invalid response from Google Maps API."}
+        return {
+            "status": "REQUEST_FAILED",
+            "error_message": "Invalid response from Google Maps API.",
+        }
 
     if response.status_code != 200:
         data.setdefault("status", "REQUEST_FAILED")
@@ -119,15 +140,25 @@ def create_zipped_shapefile(gdf: gpd.GeoDataFrame, base_name: str) -> bytes:
         return zip_buffer.getvalue()
 
 
-def build_routes(df: pd.DataFrame, api_key: str, arrival_time_val: str, weekday: str, mode_input: str):
+def build_routes(
+    df: pd.DataFrame,
+    api_key: str,
+    arrival_time_val: str,
+    weekday: str,
+    mode_input: str,
+):
     df = df.copy()
     df = df.dropna(subset=["GEOID"])
 
     if df.empty:
-        raise ValueError("The uploaded file has no usable rows after removing blank GEOID values.")
+        raise ValueError(
+            "The uploaded file has no usable rows after removing blank GEOID values."
+        )
 
     mode = "driving" if mode_input == "Auto" else "transit"
-    transit_mode = "subway" if mode_input == "Subway" else ("bus" if mode_input == "Bus" else None)
+    transit_mode = (
+        "subway" if mode_input == "Subway" else ("bus" if mode_input == "Bus" else None)
+    )
     mode_label = "driving" if mode_input == "Auto" else f"transit-{transit_mode}"
 
     today_local = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d")
@@ -165,15 +196,24 @@ def build_routes(df: pd.DataFrame, api_key: str, arrival_time_val: str, weekday:
             distance = leg["distance"]["value"] / 1609.34
 
             if "departure_time" in leg:
-                dep_time_utc = datetime.utcfromtimestamp(leg["departure_time"]["value"]).replace(tzinfo=pytz.utc)
+                dep_time_utc = datetime.utcfromtimestamp(
+                    leg["departure_time"]["value"]
+                ).replace(tzinfo=pytz.utc)
             else:
-                dep_time_utc = datetime.utcfromtimestamp(arrival_time - int(travel_time * 60)).replace(tzinfo=pytz.utc)
+                dep_time_utc = datetime.utcfromtimestamp(
+                    arrival_time - int(travel_time * 60)
+                ).replace(tzinfo=pytz.utc)
 
-            arr_time_local = datetime.utcfromtimestamp(arrival_time).replace(tzinfo=pytz.utc).astimezone(EASTERN_TZ)
+            arr_time_local = (
+                datetime.utcfromtimestamp(arrival_time)
+                .replace(tzinfo=pytz.utc)
+                .astimezone(EASTERN_TZ)
+            )
             dep_time_local = dep_time_utc.astimezone(EASTERN_TZ)
 
             sbwy_lines = []
             bus_lines = []
+
             if mode == "transit":
                 for step in leg.get("steps", []):
                     if step.get("travel_mode") == "TRANSIT":
@@ -181,6 +221,7 @@ def build_routes(df: pd.DataFrame, api_key: str, arrival_time_val: str, weekday:
                         line = transit_details.get("line", {})
                         vehicle = line.get("vehicle", {}).get("type", "").lower()
                         name = line.get("short_name") or line.get("name", "")
+
                         if vehicle == "subway":
                             sbwy_lines.append(name)
                         elif vehicle == "bus":
@@ -202,7 +243,11 @@ def build_routes(df: pd.DataFrame, api_key: str, arrival_time_val: str, weekday:
                 }
             )
         else:
-            error_message = route_data.get("error_message", route_data.get("status", "Unknown error")) if route_data else "No data"
+            error_message = (
+                route_data.get("error_message", route_data.get("status", "Unknown error"))
+                if route_data
+                else "No data"
+            )
             errors.append({"GEOID": geoid, "Error": error_message})
 
         progress.progress(i / total_rows, text=f"Processed {i:,} of {total_rows:,} rows")
@@ -211,7 +256,9 @@ def build_routes(df: pd.DataFrame, api_key: str, arrival_time_val: str, weekday:
     status_box.empty()
 
     if not route_data_list:
-        raise RuntimeError("No routes were returned. Check the API key, inputs, and Google Maps billing setup.")
+        raise RuntimeError(
+            "No routes were returned. Check the API key, inputs, and Google Maps billing setup."
+        )
 
     gdf = gpd.GeoDataFrame(route_data_list, crs="EPSG:4326", geometry="geometry")
     error_df = pd.DataFrame(errors)
@@ -223,7 +270,6 @@ st.write(
     "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
 )
 
-# -------- Expanders --------
 with st.expander("Required input columns"):
     st.write(REQUIRED_COLUMNS)
     st.download_button(
@@ -251,7 +297,6 @@ Important:
         """
     )
 
-# -------- Form --------
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
@@ -277,62 +322,87 @@ with st.form("od_route_form"):
         mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
     submitted = st.form_submit_button("Build routes")
-    
-    
-st.write(
-    "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
-)
 
-with st.expander("Required input columns"):
-    st.write(REQUIRED_COLUMNS)
-    st.download_button(
-        label="Download sample Excel template",
-        data=sample_template_bytes(),
-        file_name="od_route_template.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+if submitted:
+    if uploaded_file is None:
+        st.error("Please upload an Excel or CSV file.")
+    elif not api_key.strip():
+        st.error("Please enter a Google Maps API key.")
+    else:
+        try:
+            with st.spinner("Reading file..."):
+                df = parse_uploaded_table(uploaded_file)
+                validate_input_table(df)
+
+            with st.spinner(
+                "Calling Google Maps Directions API and building route geometry..."
+            ):
+                gdf, error_df = build_routes(
+                    df,
+                    api_key.strip(),
+                    arrival_time_val,
+                    weekday,
+                    mode_input,
+                )
+
+            base_name = os.path.splitext(uploaded_file.name)[0]
+            zip_bytes = create_zipped_shapefile(gdf, f"{base_name}_{mode_input}")
+
+            st.success(f"Done. {len(gdf):,} routes were created.")
+
+            preview_cols = [
+                "GEOID",
+                "Trips",
+                "ModeOfTran",
+                "TravelTime",
+                "DistMile",
+                "SbwyLine",
+                "BusLine",
+                "DayOfWk",
+                "Arr_Time",
+                "Dep_Time",
+            ]
+
+            st.subheader("Preview")
+            st.dataframe(gdf[preview_cols].head(25), use_container_width=True)
+
+            st.download_button(
+                label="Download shapefile ZIP",
+                data=zip_bytes,
+                file_name=f"{base_name}_{mode_input}.zip",
+                mime="application/zip",
+            )
+
+            if not error_df.empty:
+                st.subheader("Rows with errors")
+                st.dataframe(error_df, use_container_width=True)
+
+                csv_bytes = error_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download error log (CSV)",
+                    data=csv_bytes,
+                    file_name=f"{base_name}_{mode_input}_errors.csv",
+                    mime="text/csv",
+                )
+
+        except Exception as exc:
+            st.error(f"The app could not finish the run: {exc}")
+
+with st.expander("How to run this app"):
+    st.code(
+        """
+pip install -r requirements.txt
+streamlit run streamlit_od_router_app.py
+        """.strip(),
+        language="bash",
     )
 
-with st.form("od_route_form"):
-    uploaded_file = st.file_uploader(
-        "Upload OD file",
-        type=["xlsx", "xls", "csv"],
-        help="Required columns: GEOID, orig_LAT, orig_LON, dest_LAT, dest_LON, Trips",
-    )
-
-    api_key = st.text_input(
-        "Google Maps API key",
-        type="password",
-        help="Each user should use their own key. The app does not store it.",
-    )
-
-  
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
-    with col2:
-        weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
-    with col3:
-        mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
-
-    submitted = st.form_submit_button("Build routes")
-    with col3:
-        mode_input = st
-
-  with st.expander("How to get a Google Maps API key"):
+with st.expander("Important notes"):
     st.markdown(
         """
-1. Go to https://console.cloud.google.com/
-2. Create a new project, or select an existing one
-3. Go to APIs & Services → Library
-4. Enable Directions API
-5. Go to APIs & Services → Credentials
-6. Click Create Credentials → API Key
-7. Copy the key and paste it here
-
-Important:
-- Billing usually must be enabled
-- Restrict the key to Directions API if possible
-- Each user should use their own key
+- This app asks each user to enter their own Google Maps API key.
+- The key is used only for the current run and is not written to the output.
+- A shapefile is downloaded as a ZIP because a shapefile is made of multiple files.
+- For larger jobs, the Google Maps API cost may become significant depending on the number of OD pairs.
         """
     )
-    
