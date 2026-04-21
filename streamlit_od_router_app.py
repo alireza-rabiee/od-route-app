@@ -232,24 +232,6 @@ with st.expander("Required input columns"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-with st.expander("How to get a Google Maps API key"):
-    st.markdown(
-        """
-1. Go to https://console.cloud.google.com/
-2. Create a new project, or select an existing one
-3. Go to APIs & Services → Library
-4. Enable Directions API
-5. Go to APIs & Services → Credentials
-6. Click Create Credentials → API Key
-7. Copy the key and paste it here
-
-Important:
-- Billing usually must be enabled
-- Restrict the key to Directions API if possible
-- Each user should use their own key
-        """
-    )
-
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
@@ -274,3 +256,23 @@ with st.form("od_route_form"):
     submitted = st.form_submit_button("Build routes")
     with col3:
         mode_input = st
+
+with st.expander("How to get a Google Maps API key"):
+    st.markdown(
+        """
+1. Go to https://console.cloud.google.com/
+2. Create a new project, or select an existing one
+3. Go to APIs & Services → Library
+4. Enable Directions API
+5. Go to APIs & Services → Credentials
+6. Click Create Credentials → API Key
+7. Copy the key and paste it here
+
+Important:
+- Billing usually must be enabled
+- Restrict the key to Directions API if possible
+- Each user should use their own key
+        """
+    )
+
+
