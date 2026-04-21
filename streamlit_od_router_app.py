@@ -125,6 +125,36 @@ def validate_input_table(df: pd.DataFrame):
         raise ValueError("Missing required columns: " + ", ".join(missing_columns))
 
 
+def estimate_job_size(df: pd.DataFrame):
+    """
+    Estimate request count and give a simple caution level.
+    Assumes roughly 1 Directions API request per usable OD pair.
+    """
+    usable_df = df.dropna(subset=["GEOID"]).copy()
+    od_pairs = len(usable_df)
+    estimated_requests = od_pairs
+
+    if estimated_requests >= 5000:
+        level = "high"
+        message = "Large run. This may take a while and may create noticeable API charges."
+    elif estimated_requests >= 1000:
+        level = "medium"
+        message = "Moderate to large run. Double check your API billing setup before running."
+    elif estimated_requests >= 100:
+        level = "low"
+        message = "Medium run. Charges are usually manageable, but still worth checking."
+    else:
+        level = "minimal"
+        message = "Small run. Still billed per request, but the overall cost is usually modest."
+
+    return {
+        "od_pairs": od_pairs,
+        "estimated_requests": estimated_requests,
+        "level": level,
+        "message": message,
+    }
+
+
 def create_zipped_shapefile(gdf: gpd.GeoDataFrame, base_name: str) -> bytes:
     with tempfile.TemporaryDirectory() as temp_dir:
         shp_path = os.path.join(temp_dir, f"{base_name}.shp")
@@ -282,7 +312,7 @@ with st.expander("Required input columns"):
 with st.expander("How to get a Google Maps API key"):
     st.markdown(
         """
-1. Go to https://console.cloud.google.com/
+1. Go to Google Cloud Console
 2. Create a new project, or select an existing one
 3. Go to APIs & Services → Library
 4. Enable Directions API
@@ -294,6 +324,16 @@ Important:
 - Billing usually must be enabled
 - Restrict the key to Directions API if possible
 - Each user should use their own key
+        """
+    )
+
+with st.expander("Estimated API usage and cost warning"):
+    st.markdown(
+        """
+- This app usually sends about **1 Google Directions request per usable OD pair**
+- Actual billing can vary by request type, SKU, monthly volume tier, and your Google Maps plan
+- Google bills Maps Platform services based on SKU usage, and billing must be enabled for the project
+- Entering a value below is optional and is only for a rough planning estimate
         """
     )
 
@@ -310,6 +350,14 @@ with st.form("od_route_form"):
         help="Each user should use their own key. The app does not store it.",
     )
 
+    cost_per_1000 = st.number_input(
+        "Optional: your estimated cost per 1,000 requests ($)",
+        min_value=0.0,
+        value=0.0,
+        step=0.5,
+        help="Leave as 0 if you only want a usage warning and not a dollar estimate.",
+    )
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -322,6 +370,36 @@ with st.form("od_route_form"):
         mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
     submitted = st.form_submit_button("Build routes")
+
+
+# Preview cost and usage warning before running
+if uploaded_file is not None:
+    try:
+        preview_df = parse_uploaded_table(uploaded_file)
+        validate_input_table(preview_df)
+
+        estimate = estimate_job_size(preview_df)
+        od_pairs = estimate["od_pairs"]
+        estimated_requests = estimate["estimated_requests"]
+
+        st.subheader("Run size warning")
+        st.write(f"Usable OD pairs: **{od_pairs:,}**")
+        st.write(f"Estimated API requests: **{estimated_requests:,}**")
+
+        if cost_per_1000 > 0:
+            estimated_cost = (estimated_requests / 1000.0) * cost_per_1000
+            st.write(f"Estimated cost using your rate: **${estimated_cost:,.2f}**")
+
+        if estimate["level"] == "high":
+            st.error(estimate["message"])
+        elif estimate["level"] in ["medium", "low"]:
+            st.warning(estimate["message"])
+        else:
+            st.info(estimate["message"])
+
+    except Exception as exc:
+        st.warning(f"Could not estimate run size yet: {exc}")
+
 
 if submitted:
     if uploaded_file is None:
@@ -400,9 +478,9 @@ streamlit run streamlit_od_router_app.py
 with st.expander("Important notes"):
     st.markdown(
         """
-- This app asks each user to enter their own Google Maps API key.
-- The key is used only for the current run and is not written to the output.
-- A shapefile is downloaded as a ZIP because a shapefile is made of multiple files.
-- For larger jobs, the Google Maps API cost may become significant depending on the number of OD pairs.
+- This app asks each user to enter their own Google Maps API key
+- The key is used only for the current run and is not written to the output
+- A shapefile is downloaded as a ZIP because a shapefile is made of multiple files
+- This app uses the Google Directions endpoint, and Google Maps Platform billing and pricing rules can change over time
         """
     )
