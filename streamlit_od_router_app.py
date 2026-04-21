@@ -246,6 +246,22 @@ with st.form("od_route_form"):
         help="Each coworker should use their own key. The app does not store it.",
     )
 
+    st.markdown("""
+### How to get a Google Maps API key
+
+1. Go to: https://console.cloud.google.com/
+2. Create a new project (or select an existing one)
+3. Go to **APIs & Services → Library**
+4. Search and enable: **Directions API**
+5. Go to **APIs & Services → Credentials**
+6. Click **Create Credentials → API Key**
+7. Copy the key and paste it here
+
+**Important:**
+- Make sure billing is enabled (Google gives free monthly credit)
+- Restrict the key to "Directions API" for security (recommended)
+""")
+    
     col1, col2, col3 = st.columns(3)
     with col1:
         arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
