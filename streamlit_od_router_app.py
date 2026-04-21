@@ -223,6 +223,7 @@ st.write(
     "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
 )
 
+# -------- Expanders --------
 with st.expander("Required input columns"):
     st.write(REQUIRED_COLUMNS)
     st.download_button(
@@ -250,6 +251,7 @@ Important:
         """
     )
 
+# -------- Form --------
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
@@ -264,14 +266,18 @@ with st.form("od_route_form"):
     )
 
     col1, col2, col3 = st.columns(3)
+
     with col1:
         arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
+
     with col2:
         weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
+
     with col3:
         mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
     submitted = st.form_submit_button("Build routes")
+    
     
 st.write(
     "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
