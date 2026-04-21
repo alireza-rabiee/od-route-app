@@ -245,19 +245,7 @@ with st.form("od_route_form"):
         help="Each user should use their own key. The app does not store it.",
     )
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
-    with col2:
-        weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
-    with col3:
-        mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
-
-    submitted = st.form_submit_button("Build routes")
-    with col3:
-        mode_input = st
-
-with st.expander("How to get a Google Maps API key"):
+    with st.expander("How to get a Google Maps API key"):
     st.markdown(
         """
 1. Go to https://console.cloud.google.com/
@@ -274,5 +262,15 @@ Important:
 - Each user should use their own key
         """
     )
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
+    with col2:
+        weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
+    with col3:
+        mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
-
+    submitted = st.form_submit_button("Build routes")
+    with col3:
+        mode_input = st
