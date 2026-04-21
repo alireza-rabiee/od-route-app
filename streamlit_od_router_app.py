@@ -4,11 +4,11 @@ import time
 import zipfile
 import tempfile
 from datetime import datetime
-
 import pandas as pd
 import geopandas as gpd
 import polyline
-import([docs.streamlit.io](https://docs.streamlit.io/develop/api-reference/widgets/st.file_uploader?utm_source=chatgpt.com))t
+import requests
+import streamlit as st
 from shapely.geometry import LineString
 
 
