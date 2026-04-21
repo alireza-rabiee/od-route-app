@@ -232,6 +232,60 @@ with st.expander("Required input columns"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+with st.expander("How to get a Google Maps API key"):
+    st.markdown(
+        """
+1. Go to https://console.cloud.google.com/
+2. Create a new project, or select an existing one
+3. Go to APIs & Services → Library
+4. Enable Directions API
+5. Go to APIs & Services → Credentials
+6. Click Create Credentials → API Key
+7. Copy the key and paste it here
+
+Important:
+- Billing usually must be enabled
+- Restrict the key to Directions API if possible
+- Each user should use their own key
+        """
+    )
+
+with st.form("od_route_form"):
+    uploaded_file = st.file_uploader(
+        "Upload OD file",
+        type=["xlsx", "xls", "csv"],
+        help="Required columns: GEOID, orig_LAT, orig_LON, dest_LAT, dest_LON, Trips",
+    )
+
+    api_key = st.text_input(
+        "Google Maps API key",
+        type="password",
+        help="Each user should use their own key. The app does not store it.",
+    )
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
+    with col2:
+        weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
+    with col3:
+        mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
+
+    submitted = st.form_submit_button("Build routes")
+    
+st.write(
+    "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
+)
+
+with st.expander("Required input columns"):
+    st.write(REQUIRED_COLUMNS)
+    st.download_button(
+        label="Download sample Excel template",
+        data=sample_template_bytes(),
+        file_name="od_route_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
