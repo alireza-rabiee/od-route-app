@@ -243,24 +243,29 @@ with st.form("od_route_form"):
     api_key = st.text_input(
         "Google Maps API key",
         type="password",
-        help="Each coworker should use their own key. The app does not store it.",
+        help="Each user should use their own key. The app does not store it.",
     )
 
-    st.markdown("""
-### How to get a Google Maps API key
+   with st.expander("Required input columns"):
 
-1. Go to: https://console.cloud.google.com/
-2. Create a new project (or select an existing one)
-3. Go to **APIs & Services → Library**
-4. Search and enable: **Directions API**
-5. Go to **APIs & Services → Credentials**
+       with st.expander("How to get a Google Maps API key"):
+    st.markdown(
+        """
+1. Go to `https://console.cloud.google.com/`
+2. Create a new project, or select an existing one
+3. Open **APIs & Services → Library**
+4. Search for and enable **Directions API**
+5. Open **APIs & Services → Credentials**
 6. Click **Create Credentials → API Key**
-7. Copy the key and paste it here
+7. Copy the key and paste it into this app
 
-**Important:**
-- Make sure billing is enabled (Google gives free monthly credit)
-- Restrict the key to "Directions API" for security (recommended)
-""")
+**Important**
+- Billing usually must be enabled
+- It is better to restrict the key to the **Directions API**
+- Each user should use their own key
+        """
+    )
+       
     
     col1, col2, col3 = st.columns(3)
     with col1:
