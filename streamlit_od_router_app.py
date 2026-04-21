@@ -5,6 +5,7 @@ import time
 import zipfile
 import tempfile
 from datetime import datetime
+
 import pandas as pd
 import geopandas as gpd
 import polyline
@@ -100,9 +101,7 @@ def parse_uploaded_table(uploaded_file) -> pd.DataFrame:
 def validate_input_table(df: pd.DataFrame):
     missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]
     if missing_columns:
-        raise ValueError(
-            "Missing required columns: " + ", ".join(missing_columns)
-        )
+        raise ValueError("Missing required columns: " + ", ".join(missing_columns))
 
 
 def create_zipped_shapefile(gdf: gpd.GeoDataFrame, base_name: str) -> bytes:
@@ -233,6 +232,24 @@ with st.expander("Required input columns"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+with st.expander("How to get a Google Maps API key"):
+    st.markdown(
+        """
+1. Go to https://console.cloud.google.com/
+2. Create a new project, or select an existing one
+3. Go to APIs & Services → Library
+4. Enable Directions API
+5. Go to APIs & Services → Credentials
+6. Click Create Credentials → API Key
+7. Copy the key and paste it here
+
+Important:
+- Billing usually must be enabled
+- Restrict the key to Directions API if possible
+- Each user should use their own key
+        """
+    )
+
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
@@ -246,107 +263,10 @@ with st.form("od_route_form"):
         help="Each user should use their own key. The app does not store it.",
     )
 
-   with st.expander("Required input columns"):
-
-       with st.expander("How to get a Google Maps API key"):
-    st.markdown(
-        """
-1. Go to `https://console.cloud.google.com/`
-2. Create a new project, or select an existing one
-3. Open **APIs & Services → Library**
-4. Search for and enable **Directions API**
-5. Open **APIs & Services → Credentials**
-6. Click **Create Credentials → API Key**
-7. Copy the key and paste it into this app
-
-**Important**
-- Billing usually must be enabled
-- It is better to restrict the key to the **Directions API**
-- Each user should use their own key
-        """
-    )
-       
-    
     col1, col2, col3 = st.columns(3)
     with col1:
         arrival_time_val = st.selectbox("Arrival time", ARRIVAL_OPTIONS, index=3)
     with col2:
         weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
     with col3:
-        mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
-
-    submitted = st.form_submit_button("Build routes")
-
-if submitted:
-    if uploaded_file is None:
-        st.error("Please upload an Excel or CSV file.")
-    elif not api_key.strip():
-        st.error("Please enter a Google Maps API key.")
-    else:
-        try:
-            with st.spinner("Reading file..."):
-                df = parse_uploaded_table(uploaded_file)
-                validate_input_table(df)
-
-            with st.spinner("Calling Google Maps Directions API and building route geometry..."):
-                gdf, error_df = build_routes(df, api_key.strip(), arrival_time_val, weekday, mode_input)
-
-            base_name = os.path.splitext(uploaded_file.name)[0]
-            zip_bytes = create_zipped_shapefile(gdf, f"{base_name}_{mode_input}")
-
-            st.success(f"Done. {len(gdf):,} routes were created.")
-
-            preview_cols = [
-                "GEOID",
-                "Trips",
-                "ModeOfTran",
-                "TravelTime",
-                "DistMile",
-                "SbwyLine",
-                "BusLine",
-                "DayOfWk",
-                "Arr_Time",
-                "Dep_Time",
-            ]
-            st.subheader("Preview")
-            st.dataframe(gdf[preview_cols].head(25), use_container_width=True)
-
-            st.download_button(
-                label="Download shapefile ZIP",
-                data=zip_bytes,
-                file_name=f"{base_name}_{mode_input}.zip",
-                mime="application/zip",
-            )
-
-            if not error_df.empty:
-                st.subheader("Rows with errors")
-                st.dataframe(error_df, use_container_width=True)
-                csv_bytes = error_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="Download error log (CSV)",
-                    data=csv_bytes,
-                    file_name=f"{base_name}_{mode_input}_errors.csv",
-                    mime="text/csv",
-                )
-
-        except Exception as exc:
-            st.error(f"The app could not finish the run: {exc}")
-
-with st.expander("How to run this app"):
-    st.code(
-        """
-pip install streamlit pandas geopandas shapely requests polyline openpyxl
-streamlit run streamlit_od_router_app.py
-        """.strip(),
-        language="bash",
-    )
-
-with st.expander("Important notes"):
-    st.markdown(
-        """
-- This app asks each user to enter their own Google Maps API key.
-- The key is used only for the current run and is not written to the output.
-- A shapefile is downloaded as a ZIP because a shapefile is made of multiple files.
-- For larger jobs, the Google Maps API cost may become significant depending on the number of OD pairs.
-        """
-    )
+        mode_input = st
