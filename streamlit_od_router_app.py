@@ -269,4 +269,8 @@ with st.form("od_route_form"):
     with col2:
         weekday = st.selectbox("Weekday", WEEKDAY_OPTIONS, index=2)
     with col3:
+        mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
+
+    submitted = st.form_submit_button("Build routes")
+    with col3:
         mode_input = st
