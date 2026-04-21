@@ -466,15 +466,6 @@ if submitted:
         except Exception as exc:
             st.error(f"The app could not finish the run: {exc}")
 
-with st.expander("How to run this app"):
-    st.code(
-        """
-pip install -r requirements.txt
-streamlit run streamlit_od_router_app.py
-        """.strip(),
-        language="bash",
-    )
-
 with st.expander("Important notes"):
     st.markdown(
         """
