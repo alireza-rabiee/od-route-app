@@ -332,6 +332,7 @@ with st.expander("Estimated API usage and cost warning"):
         """
 - This app usually sends about **1 Google Directions request per usable OD pair**
 - Actual billing can vary by request type, SKU, monthly volume tier, and your Google Maps plan
+- As of April 2026, Google includes roughly 10,000 Directions requests per month at no cost
 - Google bills Maps Platform services based on SKU usage, and billing must be enabled for the project
 - Entering a value below is optional and is only for a rough planning estimate
         """
