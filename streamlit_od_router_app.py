@@ -272,7 +272,7 @@ def build_loaded_segments(
 def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
     """
     Creates an interactive map for the loaded roadway segment layer.
-    This uses Streamlit/PyDeck with an OpenStreetMap based basemap.
+    This uses Streamlit/PyDeck PathLayer, which is reliable for polylines.
     """
 
     if loaded_segments_gdf.empty:
@@ -281,56 +281,90 @@ def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
 
     map_gdf = loaded_segments_gdf.copy()
 
-    # PyDeck works best with WGS84 coordinates
+    # PyDeck needs WGS84 longitude/latitude coordinates
     if map_gdf.crs is None:
         map_gdf = map_gdf.set_crs("EPSG:4326")
     else:
         map_gdf = map_gdf.to_crs("EPSG:4326")
 
+    # Explode multipart geometry, just in case
+    map_gdf = map_gdf.explode(index_parts=False).reset_index(drop=True)
+
+    # Keep only valid LineString geometry
+    map_gdf = map_gdf[
+        map_gdf.geometry.notnull()
+        & (~map_gdf.geometry.is_empty)
+        & (map_gdf.geometry.geom_type == "LineString")
+    ].copy()
+
+    if map_gdf.empty:
+        st.info("No valid LineString geometry is available to map.")
+        return
+
+    # Create path coordinate lists for PyDeck PathLayer
+    map_gdf["path"] = map_gdf.geometry.apply(
+        lambda geom: [[float(x), float(y)] for x, y in geom.coords]
+    )
+
     max_trips = float(map_gdf["TotTrips"].max()) if "TotTrips" in map_gdf.columns else 0
 
     def get_color(trips):
         if max_trips <= 0:
-            return [80, 80, 80, 180]
+            return [40, 40, 40]
 
         ratio = float(trips) / max_trips
 
         if ratio >= 0.75:
-            return [180, 0, 0, 220]
+            return [200, 0, 0]
         elif ratio >= 0.50:
-            return [230, 110, 0, 210]
+            return [230, 100, 0]
         elif ratio >= 0.25:
-            return [240, 190, 0, 200]
+            return [230, 180, 0]
         else:
-            return [60, 140, 220, 180]
+            return [0, 90, 200]
 
     def get_width(trips):
         if max_trips <= 0:
-            return 3
+            return 4
 
         ratio = float(trips) / max_trips
-        return max(2, min(12, 2 + ratio * 10))
+        return max(3, min(16, 3 + ratio * 13))
 
-    map_gdf["LineColor"] = map_gdf["TotTrips"].apply(get_color)
-    map_gdf["LineWidth"] = map_gdf["TotTrips"].apply(get_width)
+    map_gdf["color"] = map_gdf["TotTrips"].apply(get_color)
+    map_gdf["width"] = map_gdf["TotTrips"].apply(get_width)
+
+    # Round for cleaner tooltip display
+    map_gdf["LenMile"] = map_gdf["LenMile"].round(3)
+    map_gdf["TotTrips"] = map_gdf["TotTrips"].round(2)
 
     center = map_gdf.geometry.unary_union.centroid
-    geojson_data = map_gdf.to_json()
+
+    map_df = pd.DataFrame(
+        {
+            "path": map_gdf["path"],
+            "color": map_gdf["color"],
+            "width": map_gdf["width"],
+            "SegID": map_gdf["SegID"],
+            "TotTrips": map_gdf["TotTrips"],
+            "RtCount": map_gdf["RtCount"],
+            "LenMile": map_gdf["LenMile"],
+        }
+    )
 
     layer = pdk.Layer(
-        "GeoJsonLayer",
-        geojson_data,
+        "PathLayer",
+        data=map_df,
+        get_path="path",
+        get_color="color",
+        get_width="width",
+        width_units="pixels",
         pickable=True,
-        stroked=True,
-        filled=False,
-        line_width_units="pixels",
-        get_line_color="properties.LineColor",
-        get_line_width="properties.LineWidth",
+        auto_highlight=True,
     )
 
     view_state = pdk.ViewState(
-        latitude=center.y,
-        longitude=center.x,
+        latitude=float(center.y),
+        longitude=float(center.x),
         zoom=12,
         pitch=0,
     )
@@ -356,7 +390,6 @@ def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
     )
 
     st.pydeck_chart(deck, use_container_width=True)
-
 
 
 def build_routes(
