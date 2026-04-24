@@ -16,7 +16,7 @@ from shapely.geometry import LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union
 
 
-st.set_page_config(page_title="STV OD Route Builder", layout="wide")
+st.set_page_config(page_title="OD Route Builder", layout="wide")
 
 EASTERN_TZ = pytz.timezone("US/Eastern")
 REQUIRED_COLUMNS = ["GEOID", "orig_LAT", "orig_LON", "dest_LAT", "dest_LON", "Trips"]
@@ -38,107 +38,140 @@ def apply_stv_theme():
         """
         <style>
         :root {
-            --stv-navy: #0b1f3a;
-            --stv-blue: #163f73;
-            --stv-orange: #f36f21;
-            --stv-light: #f5f7fa;
-            --stv-gray: #5f6b7a;
+            --brand-red: #d71920;
+            --brand-dark-red: #9f1117;
+            --brand-black: #111111;
+            --brand-white: #ffffff;
+            --brand-light: #f5f5f5;
+            --brand-gray: #5f5f5f;
         }
 
         .stApp {
-            background: linear-gradient(180deg, #ffffff 0%, #f6f8fb 100%);
+            background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
         }
 
         section[data-testid="stSidebar"] {
-            background-color: #0b1f3a;
+            background-color: #111111;
         }
 
         .stv-hero {
-            background: linear-gradient(120deg, #0b1f3a 0%, #163f73 68%, #f36f21 100%);
+            position: relative;
+            overflow: hidden;
+            background: #d71920;
             padding: 34px 38px;
-            border-radius: 22px;
+            border-radius: 0 0 28px 28px;
             color: white;
-            margin-bottom: 24px;
-            box-shadow: 0 10px 30px rgba(11, 31, 58, 0.18);
+            margin: -1rem -1rem 26px -1rem;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+            min-height: 190px;
         }
 
-        .stv-logo {
-            font-size: 42px;
-            line-height: 1;
-            font-weight: 900;
-            letter-spacing: -2px;
-            margin-bottom: 10px;
+        .stv-hero::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 42%;
+            height: 100%;
+            background: #111111;
+            clip-path: polygon(35% 0, 100% 0, 100% 100%, 0% 100%);
+            opacity: 0.95;
         }
 
-        .stv-kicker {
-            color: #f36f21;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 1.8px;
+        .stv-hero::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 22%;
+            width: 22%;
+            height: 100%;
+            background: #ffffff;
+            clip-path: polygon(55% 0, 100% 0, 45% 100%, 0% 100%);
+            opacity: 0.95;
+        }
+
+        .stv-hero-content {
+            position: relative;
+            z-index: 2;
+            max-width: 980px;
+        }
+
+        .stv-mark {
+            display: inline-block;
+            background: #111111;
+            color: #ffffff;
+            font-size: 15px;
             font-weight: 800;
-            margin-bottom: 8px;
+            letter-spacing: 2px;
+            padding: 7px 14px;
+            margin-bottom: 14px;
+            text-transform: uppercase;
         }
 
         .stv-title {
-            font-size: 34px;
-            font-weight: 800;
-            margin-bottom: 8px;
+            font-size: 36px;
+            font-weight: 850;
+            margin-bottom: 10px;
+            color: #ffffff;
+            letter-spacing: -0.5px;
         }
 
         .stv-subtitle {
             font-size: 17px;
-            color: #e8eef7;
-            max-width: 950px;
+            line-height: 1.45;
+            color: #ffffff;
+            max-width: 760px;
         }
 
         .stv-card {
             background: white;
-            border: 1px solid #e4e8ef;
+            border: 1px solid #e7e7e7;
             border-radius: 18px;
             padding: 20px 22px;
-            box-shadow: 0 6px 22px rgba(11, 31, 58, 0.07);
+            box-shadow: 0 6px 22px rgba(0, 0, 0, 0.07);
             margin-bottom: 18px;
+            border-top: 5px solid #d71920;
         }
 
         .stv-section-title {
-            color: #0b1f3a;
+            color: #111111;
             font-size: 22px;
             font-weight: 800;
             margin-top: 14px;
-            margin-bottom: 6px;
-            border-left: 6px solid #f36f21;
+            margin-bottom: 8px;
+            border-left: 7px solid #d71920;
             padding-left: 12px;
         }
 
         div.stButton > button,
         div.stDownloadButton > button,
         button[kind="primary"] {
-            border-radius: 999px !important;
-            border: 1px solid #f36f21 !important;
-            background-color: #f36f21 !important;
+            border-radius: 0 !important;
+            border: 1px solid #111111 !important;
+            background-color: #111111 !important;
             color: white !important;
-            font-weight: 700 !important;
+            font-weight: 750 !important;
         }
 
         div.stDownloadButton > button:hover,
         div.stButton > button:hover {
-            background-color: #d95f17 !important;
-            border-color: #d95f17 !important;
+            background-color: #d71920 !important;
+            border-color: #d71920 !important;
             color: white !important;
         }
 
         .stProgress > div > div > div > div {
-            background-color: #f36f21;
+            background-color: #d71920;
         }
 
         [data-testid="stMetricValue"] {
-            color: #0b1f3a;
+            color: #111111;
             font-weight: 800;
         }
 
         hr {
             border: none;
-            border-top: 1px solid #e4e8ef;
+            border-top: 1px solid #e4e4e4;
             margin: 24px 0;
         }
         </style>
@@ -151,12 +184,13 @@ def render_stv_header():
     st.markdown(
         """
         <div class="stv-hero">
-            <div class="stv-logo">STV</div>
-            <div class="stv-kicker">Infrastructure analysis tool</div>
-            <div class="stv-title">OD Route Builder and Corridor Load Mapper</div>
-            <div class="stv-subtitle">
-                A planning workflow to translate origin destination demand into route shapefiles,
-                loaded roadway segments, and corridor level trip patterns.
+            <div class="stv-hero-content">
+                <div class="stv-mark">Route analysis</div>
+                <div class="stv-title">OD Route Builder and Corridor Load Mapper</div>
+                <div class="stv-subtitle">
+                    Translate origin destination demand into route shapefiles, loaded roadway segments,
+                    and corridor level trip patterns.
+                </div>
             </div>
         </div>
         """,
