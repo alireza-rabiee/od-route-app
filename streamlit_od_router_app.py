@@ -16,7 +16,7 @@ from shapely.geometry import LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union
 
 
-st.set_page_config(page_title="OD Route Builder", layout="wide")
+st.set_page_config(page_title="STV OD Route Builder", layout="wide")
 
 EASTERN_TZ = pytz.timezone("US/Eastern")
 REQUIRED_COLUMNS = ["GEOID", "orig_LAT", "orig_LON", "dest_LAT", "dest_LON", "Trips"]
@@ -31,6 +31,142 @@ WEEKDAY_OPTIONS = [
     "Sunday",
 ]
 MODE_OPTIONS = ["Auto", "Subway", "Bus"]
+
+
+def apply_stv_theme():
+    st.markdown(
+        """
+        <style>
+        :root {
+            --stv-navy: #0b1f3a;
+            --stv-blue: #163f73;
+            --stv-orange: #f36f21;
+            --stv-light: #f5f7fa;
+            --stv-gray: #5f6b7a;
+        }
+
+        .stApp {
+            background: linear-gradient(180deg, #ffffff 0%, #f6f8fb 100%);
+        }
+
+        section[data-testid="stSidebar"] {
+            background-color: #0b1f3a;
+        }
+
+        .stv-hero {
+            background: linear-gradient(120deg, #0b1f3a 0%, #163f73 68%, #f36f21 100%);
+            padding: 34px 38px;
+            border-radius: 22px;
+            color: white;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(11, 31, 58, 0.18);
+        }
+
+        .stv-logo {
+            font-size: 42px;
+            line-height: 1;
+            font-weight: 900;
+            letter-spacing: -2px;
+            margin-bottom: 10px;
+        }
+
+        .stv-kicker {
+            color: #f36f21;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1.8px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .stv-title {
+            font-size: 34px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .stv-subtitle {
+            font-size: 17px;
+            color: #e8eef7;
+            max-width: 950px;
+        }
+
+        .stv-card {
+            background: white;
+            border: 1px solid #e4e8ef;
+            border-radius: 18px;
+            padding: 20px 22px;
+            box-shadow: 0 6px 22px rgba(11, 31, 58, 0.07);
+            margin-bottom: 18px;
+        }
+
+        .stv-section-title {
+            color: #0b1f3a;
+            font-size: 22px;
+            font-weight: 800;
+            margin-top: 14px;
+            margin-bottom: 6px;
+            border-left: 6px solid #f36f21;
+            padding-left: 12px;
+        }
+
+        div.stButton > button,
+        div.stDownloadButton > button,
+        button[kind="primary"] {
+            border-radius: 999px !important;
+            border: 1px solid #f36f21 !important;
+            background-color: #f36f21 !important;
+            color: white !important;
+            font-weight: 700 !important;
+        }
+
+        div.stDownloadButton > button:hover,
+        div.stButton > button:hover {
+            background-color: #d95f17 !important;
+            border-color: #d95f17 !important;
+            color: white !important;
+        }
+
+        .stProgress > div > div > div > div {
+            background-color: #f36f21;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: #0b1f3a;
+            font-weight: 800;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #e4e8ef;
+            margin: 24px 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_stv_header():
+    st.markdown(
+        """
+        <div class="stv-hero">
+            <div class="stv-logo">STV</div>
+            <div class="stv-kicker">Infrastructure analysis tool</div>
+            <div class="stv-title">OD Route Builder and Corridor Load Mapper</div>
+            <div class="stv-subtitle">
+                A planning workflow to translate origin destination demand into route shapefiles,
+                loaded roadway segments, and corridor level trip patterns.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def stv_section(title: str):
+    st.markdown(f'<div class="stv-section-title">{title}</div>', unsafe_allow_html=True)
+
 
 
 @st.cache_data(show_spinner=False)
@@ -517,11 +653,20 @@ def build_routes(
     return gdf, error_df
 
 
-st.title("OD Route Builder")
-st.write(
-    "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefiles as ZIP packages."
+apply_stv_theme()
+render_stv_header()
+
+st.markdown(
+    """
+    <div class="stv-card">
+    Upload an OD Excel or CSV file, enter your Google Maps API key, choose the arrival time and travel mode,
+    then download both the original route shapefile and the loaded roadway segment shapefile.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
+stv_section("Input setup")
 with st.expander("Required input columns"):
     st.write(REQUIRED_COLUMNS)
     st.download_button(
@@ -577,6 +722,7 @@ Important: this is based on Google route geometry, not an official roadway cente
         """
     )
 
+stv_section("Run settings")
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
@@ -622,7 +768,7 @@ if uploaded_file is not None:
         od_pairs = estimate["od_pairs"]
         estimated_requests = estimate["estimated_requests"]
 
-        st.subheader("Run size warning")
+        stv_section("Run size warning")
         st.write(f"Usable OD pairs: **{od_pairs:,}**")
         st.write(f"Estimated API requests: **{estimated_requests:,}**")
 
@@ -695,7 +841,7 @@ if submitted:
                 "Dep_Time",
             ]
 
-            st.subheader("Route preview")
+            stv_section("Route preview")
             st.dataframe(gdf[preview_cols].head(25), use_container_width=True)
 
             st.download_button(
@@ -712,7 +858,7 @@ if submitted:
                 "LenMile",
             ]
 
-            st.subheader("Loaded segment preview")
+            stv_section("Loaded segment preview")
             st.dataframe(
                 loaded_segments_gdf[loaded_preview_cols]
                 .sort_values("TotTrips", ascending=False)
@@ -727,14 +873,14 @@ if submitted:
                 mime="application/zip",
             )
 
-            st.subheader("Loaded roadway segments map")
+            stv_section("Loaded roadway segments map")
             st.caption(
-                "Thicker and warmer colored lines generally represent segments with higher total trips."
+                "Thicker and warmer colored lines represent higher loaded roadway segments based on total trips."
             )
             make_loaded_segments_map(loaded_segments_gdf)
 
             if not error_df.empty:
-                st.subheader("Rows with errors")
+                stv_section("Rows with errors")
                 st.dataframe(error_df, use_container_width=True)
 
                 csv_bytes = error_df.to_csv(index=False).encode("utf-8")
