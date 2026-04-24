@@ -11,7 +11,8 @@ import polyline
 import pytz
 import requests
 import streamlit as st
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString, GeometryCollection
+from shapely.ops import unary_union
 
 
 st.set_page_config(page_title="OD Route Builder", layout="wide")
@@ -170,6 +171,103 @@ def create_zipped_shapefile(gdf: gpd.GeoDataFrame, base_name: str) -> bytes:
         return zip_buffer.getvalue()
 
 
+def build_loaded_segments(
+    routes_gdf: gpd.GeoDataFrame,
+    trips_field: str = "Trips",
+    buffer_meters: float = 1.0,
+) -> gpd.GeoDataFrame:
+    """
+    Creates a new line layer where shared route segments are split and Trips are summed.
+
+    Notes:
+    - This uses the route geometry returned by Google Directions.
+    - It does not snap to an official roadway centerline file.
+    - The midpoint buffer helps catch tiny geometry precision differences.
+    """
+
+    if routes_gdf.empty:
+        raise ValueError("Route GeoDataFrame is empty.")
+
+    routes = routes_gdf.copy()
+
+    if trips_field not in routes.columns:
+        raise ValueError(f"Trips field '{trips_field}' was not found.")
+
+    routes[trips_field] = pd.to_numeric(routes[trips_field], errors="coerce").fillna(0)
+
+    # Project to a metric CRS so the buffer is in meters
+    projected_crs = routes.estimate_utm_crs()
+    if projected_crs is None:
+        projected_crs = "EPSG:3857"
+
+    routes_proj = routes.to_crs(projected_crs)
+
+    # Split overlapping lines into shared segment pieces
+    merged = unary_union(routes_proj.geometry)
+
+    if isinstance(merged, LineString):
+        segment_geoms = [merged]
+    elif isinstance(merged, MultiLineString):
+        segment_geoms = list(merged.geoms)
+    elif isinstance(merged, GeometryCollection):
+        segment_geoms = [
+            geom
+            for geom in merged.geoms
+            if isinstance(geom, LineString) and not geom.is_empty
+        ]
+    else:
+        segment_geoms = []
+
+    segments = gpd.GeoDataFrame(
+        {"SegID": range(1, len(segment_geoms) + 1)},
+        geometry=segment_geoms,
+        crs=projected_crs,
+    )
+
+    if segments.empty:
+        raise ValueError("No valid line segments were created.")
+
+    # Create small buffers around each segment midpoint.
+    # This is safer than intersecting full lines because it helps avoid double-counting
+    # when a route only touches a segment at an endpoint.
+    midpoint_gdf = segments.copy()
+    midpoint_gdf["geometry"] = midpoint_gdf.geometry.interpolate(
+        0.5,
+        normalized=True,
+    ).buffer(buffer_meters)
+
+    joined = gpd.sjoin(
+        midpoint_gdf[["SegID", "geometry"]],
+        routes_proj[["GEOID", trips_field, "geometry"]],
+        how="left",
+        predicate="intersects",
+    )
+
+    summary = (
+        joined.groupby("SegID")
+        .agg(
+            TotalTrips=(trips_field, "sum"),
+            RouteCount=("GEOID", "count"),
+        )
+        .reset_index()
+    )
+
+    loaded_segments = segments.merge(summary, on="SegID", how="left")
+    loaded_segments["TotalTrips"] = loaded_segments["TotalTrips"].fillna(0)
+    loaded_segments["RouteCount"] = loaded_segments["RouteCount"].fillna(0).astype(int)
+    loaded_segments["LenMile"] = loaded_segments.geometry.length / 1609.34
+
+    # Shapefile field names are limited, so keep them short
+    loaded_segments = loaded_segments.rename(
+        columns={
+            "TotalTrips": "TotTrips",
+            "RouteCount": "RtCount",
+        }
+    )
+
+    return loaded_segments.to_crs("EPSG:4326")
+
+
 def build_routes(
     df: pd.DataFrame,
     api_key: str,
@@ -297,7 +395,7 @@ def build_routes(
 
 st.title("OD Route Builder")
 st.write(
-    "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
+    "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefiles as ZIP packages."
 )
 
 with st.expander("Required input columns"):
@@ -332,9 +430,26 @@ with st.expander("Estimated API usage and cost warning"):
         """
 - This app usually sends about **1 Google Directions request per usable OD pair**
 - Actual billing can vary by request type, SKU, monthly volume tier, and your Google Maps plan
-- As of April 2026, Google includes roughly **10,000 Directions requests per month at no cost**
-- Google bills Maps Platform services based on SKU usage, and billing must be enabled for the project
 - Entering a value below is optional and is only for a rough planning estimate
+        """
+    )
+
+with st.expander("Loaded segment output"):
+    st.markdown(
+        """
+In addition to the original route shapefile, the app also creates a second shapefile:
+
+**Loaded roadway segments shapefile**
+
+This layer splits overlapping route lines into smaller shared line segments and sums the `Trips` field for each segment.
+
+Main fields:
+- `SegID`: unique segment ID
+- `TotTrips`: total trips using that segment
+- `RtCount`: number of routes using that segment
+- `LenMile`: segment length in miles
+
+Important: this is based on Google route geometry, not an official roadway centerline layer.
         """
     )
 
@@ -424,10 +539,24 @@ if submitted:
                     mode_input,
                 )
 
-            base_name = os.path.splitext(uploaded_file.name)[0]
-            zip_bytes = create_zipped_shapefile(gdf, f"{base_name}_{mode_input}")
+            with st.spinner("Building loaded segment layer..."):
+                loaded_segments_gdf = build_loaded_segments(gdf)
 
-            st.success(f"Done. {len(gdf):,} routes were created.")
+            base_name = os.path.splitext(uploaded_file.name)[0]
+
+            route_zip_bytes = create_zipped_shapefile(
+                gdf,
+                f"{base_name}_{mode_input}",
+            )
+
+            loaded_zip_bytes = create_zipped_shapefile(
+                loaded_segments_gdf,
+                f"{base_name}_{mode_input}_loaded_segments",
+            )
+
+            st.success(
+                f"Done. {len(gdf):,} routes and {len(loaded_segments_gdf):,} loaded segments were created."
+            )
 
             preview_cols = [
                 "GEOID",
@@ -442,13 +571,35 @@ if submitted:
                 "Dep_Time",
             ]
 
-            st.subheader("Preview")
+            st.subheader("Route preview")
             st.dataframe(gdf[preview_cols].head(25), use_container_width=True)
 
             st.download_button(
-                label="Download shapefile ZIP",
-                data=zip_bytes,
+                label="Download original route shapefile ZIP",
+                data=route_zip_bytes,
                 file_name=f"{base_name}_{mode_input}.zip",
+                mime="application/zip",
+            )
+
+            loaded_preview_cols = [
+                "SegID",
+                "TotTrips",
+                "RtCount",
+                "LenMile",
+            ]
+
+            st.subheader("Loaded segment preview")
+            st.dataframe(
+                loaded_segments_gdf[loaded_preview_cols]
+                .sort_values("TotTrips", ascending=False)
+                .head(25),
+                use_container_width=True,
+            )
+
+            st.download_button(
+                label="Download loaded roadway segments shapefile ZIP",
+                data=loaded_zip_bytes,
+                file_name=f"{base_name}_{mode_input}_loaded_segments.zip",
                 mime="application/zip",
             )
 
@@ -458,7 +609,7 @@ if submitted:
 
                 csv_bytes = error_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    label="Download error log (CSV)",
+                    label="Download error log CSV",
                     data=csv_bytes,
                     file_name=f"{base_name}_{mode_input}_errors.csv",
                     mime="text/csv",
@@ -473,6 +624,7 @@ with st.expander("Important notes"):
 - This app asks each user to enter their own Google Maps API key
 - The key is used only for the current run and is not written to the output
 - A shapefile is downloaded as a ZIP because a shapefile is made of multiple files
-- This app uses the Google Directions endpoint, and Google Maps Platform billing and pricing rules can change over time
+- The loaded segment output is based on Google route geometry
+- If you need exact NYCDOT/LION roadway segment totals, the next step would be matching or snapping these routes to an official roadway centerline layer
         """
     )
