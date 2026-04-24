@@ -11,6 +11,7 @@ import polyline
 import pytz
 import requests
 import streamlit as st
+import pydeck as pdk
 from shapely.geometry import LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union
 
@@ -266,6 +267,96 @@ def build_loaded_segments(
     )
 
     return loaded_segments.to_crs("EPSG:4326")
+
+
+def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
+    """
+    Creates an interactive map for the loaded roadway segment layer.
+    This uses Streamlit/PyDeck with an OpenStreetMap based basemap.
+    """
+
+    if loaded_segments_gdf.empty:
+        st.info("No loaded segments are available to map.")
+        return
+
+    map_gdf = loaded_segments_gdf.copy()
+
+    # PyDeck works best with WGS84 coordinates
+    if map_gdf.crs is None:
+        map_gdf = map_gdf.set_crs("EPSG:4326")
+    else:
+        map_gdf = map_gdf.to_crs("EPSG:4326")
+
+    max_trips = float(map_gdf["TotTrips"].max()) if "TotTrips" in map_gdf.columns else 0
+
+    def get_color(trips):
+        if max_trips <= 0:
+            return [80, 80, 80, 180]
+
+        ratio = float(trips) / max_trips
+
+        if ratio >= 0.75:
+            return [180, 0, 0, 220]
+        elif ratio >= 0.50:
+            return [230, 110, 0, 210]
+        elif ratio >= 0.25:
+            return [240, 190, 0, 200]
+        else:
+            return [60, 140, 220, 180]
+
+    def get_width(trips):
+        if max_trips <= 0:
+            return 3
+
+        ratio = float(trips) / max_trips
+        return max(2, min(12, 2 + ratio * 10))
+
+    map_gdf["LineColor"] = map_gdf["TotTrips"].apply(get_color)
+    map_gdf["LineWidth"] = map_gdf["TotTrips"].apply(get_width)
+
+    center = map_gdf.geometry.unary_union.centroid
+    geojson_data = map_gdf.to_json()
+
+    layer = pdk.Layer(
+        "GeoJsonLayer",
+        geojson_data,
+        pickable=True,
+        stroked=True,
+        filled=False,
+        line_width_units="pixels",
+        get_line_color="properties.LineColor",
+        get_line_width="properties.LineWidth",
+    )
+
+    view_state = pdk.ViewState(
+        latitude=center.y,
+        longitude=center.x,
+        zoom=12,
+        pitch=0,
+    )
+
+    tooltip = {
+        "html": """
+        <b>Segment ID:</b> {SegID}<br/>
+        <b>Total Trips:</b> {TotTrips}<br/>
+        <b>Route Count:</b> {RtCount}<br/>
+        <b>Length:</b> {LenMile} miles
+        """,
+        "style": {
+            "backgroundColor": "white",
+            "color": "black",
+        },
+    }
+
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    )
+
+    st.pydeck_chart(deck, use_container_width=True)
+
 
 
 def build_routes(
@@ -602,6 +693,12 @@ if submitted:
                 file_name=f"{base_name}_{mode_input}_loaded_segments.zip",
                 mime="application/zip",
             )
+
+            st.subheader("Loaded roadway segments map")
+            st.caption(
+                "Thicker and warmer colored lines generally represent segments with higher total trips."
+            )
+            make_loaded_segments_map(loaded_segments_gdf)
 
             if not error_df.empty:
                 st.subheader("Rows with errors")
