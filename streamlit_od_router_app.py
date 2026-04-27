@@ -350,22 +350,34 @@ def upload_zip_to_google_drive(
     zip_bytes: bytes,
     file_name: str,
     folder_id: str,
-    service_account_file: str = "service_account.json",
 ):
     """
-    Uploads a ZIP file to a Google Drive folder using a service account.
-    The Google Drive folder must be shared with the service account email as Editor.
+    Uploads a ZIP file to a Google Drive folder using Streamlit Secrets.
+
+    Required Streamlit Secrets format:
+
+    [gdrive]
+    type = "service_account"
+    project_id = "..."
+    private_key_id = "..."
+    private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
+    client_email = "..."
+    client_id = "..."
+    token_uri = "https://oauth2.googleapis.com/token"
+
+    The Google Drive folder must also be shared with the service account email as Editor.
     """
 
-    if not os.path.exists(service_account_file):
-        raise FileNotFoundError(
-            "service_account.json was not found. Place it in the same folder as this app."
+    if "gdrive" not in st.secrets:
+        raise RuntimeError(
+            "Google Drive credentials were not found in Streamlit Secrets. "
+            "Add them under [gdrive] in your app Secrets."
         )
 
     scopes = ["https://www.googleapis.com/auth/drive.file"]
 
-    credentials = Credentials.from_service_account_file(
-        service_account_file,
+    credentials = Credentials.from_service_account_info(
+        dict(st.secrets["gdrive"]),
         scopes=scopes,
     )
 
@@ -1007,7 +1019,7 @@ with st.expander("Important notes"):
 - The key is used only for the current run and is not written to the output
 - A shapefile is downloaded as a ZIP because a shapefile is made of multiple files
 - The loaded segment output is based on Google route geometry
-- Google Drive upload requires service_account.json in the same folder as this app
+- Google Drive upload requires credentials saved in Streamlit Secrets under [gdrive]
 - If you need exact NYCDOT/LION roadway segment totals, the next step would be matching or snapping these routes to an official roadway centerline layer
         """
     )
