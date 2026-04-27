@@ -842,7 +842,6 @@ with st.form("od_route_form"):
     with col3:
         mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
- 
     submitted = st.form_submit_button("Build routes")
 
 
@@ -963,23 +962,22 @@ if submitted:
                 mime="application/zip",
             )
 
-            if upload_loaded_to_drive:
-                try:
-                    with st.spinner("Uploading loaded segments ZIP to Google Drive..."):
-                        uploaded_file_info = upload_zip_to_google_drive(
-                            loaded_zip_bytes,
-                            loaded_file_name,
-                            GOOGLE_DRIVE_FOLDER_ID,
-                        )
+            try:
+                with st.spinner("Uploading loaded segments ZIP to Google Drive..."):
+                    uploaded_file_info = upload_zip_to_google_drive(
+                        loaded_zip_bytes,
+                        loaded_file_name,
+                        GOOGLE_DRIVE_FOLDER_ID,
+                    )
 
-                    st.success("Loaded roadway segments ZIP was uploaded to Google Drive.")
-                    if uploaded_file_info.get("webViewLink"):
-                        st.markdown(
-                            f"[Open uploaded file in Google Drive]({uploaded_file_info['webViewLink']})"
-                        )
+                st.success("Loaded roadway segments ZIP was uploaded to Google Drive.")
+                if uploaded_file_info.get("webViewLink"):
+                    st.markdown(
+                        f"[Open uploaded file in Google Drive]({uploaded_file_info['webViewLink']})"
+                    )
 
-                except Exception as drive_exc:
-                    st.error(f"Google Drive upload failed: {drive_exc}")
+            except Exception as drive_exc:
+                st.error(f"Google Drive upload failed: {drive_exc}")
 
             stv_section("Loaded roadway segments map")
             st.caption(
