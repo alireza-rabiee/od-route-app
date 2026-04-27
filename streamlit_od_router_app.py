@@ -12,6 +12,9 @@ import pytz
 import requests
 import streamlit as st
 import pydeck as pdk
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2.service_account import Credentials
 from shapely.geometry import LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union
 
@@ -31,6 +34,7 @@ WEEKDAY_OPTIONS = [
     "Sunday",
 ]
 MODE_OPTIONS = ["Auto", "Subway", "Bus"]
+GOOGLE_DRIVE_FOLDER_ID = "19mRlicpgbIxlA65Mmf-oA5iIJ0AWNDik"
 
 
 def apply_stv_theme():
@@ -340,6 +344,55 @@ def create_zipped_shapefile(gdf: gpd.GeoDataFrame, base_name: str) -> bytes:
 
         zip_buffer.seek(0)
         return zip_buffer.getvalue()
+
+
+def upload_zip_to_google_drive(
+    zip_bytes: bytes,
+    file_name: str,
+    folder_id: str,
+    service_account_file: str = "service_account.json",
+):
+    """
+    Uploads a ZIP file to a Google Drive folder using a service account.
+    The Google Drive folder must be shared with the service account email as Editor.
+    """
+
+    if not os.path.exists(service_account_file):
+        raise FileNotFoundError(
+            "service_account.json was not found. Place it in the same folder as this app."
+        )
+
+    scopes = ["https://www.googleapis.com/auth/drive.file"]
+
+    credentials = Credentials.from_service_account_file(
+        service_account_file,
+        scopes=scopes,
+    )
+
+    service = build("drive", "v3", credentials=credentials)
+
+    file_metadata = {
+        "name": file_name,
+        "parents": [folder_id],
+    }
+
+    media = MediaIoBaseUpload(
+        io.BytesIO(zip_bytes),
+        mimetype="application/zip",
+        resumable=False,
+    )
+
+    uploaded_file = (
+        service.files()
+        .create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, name, webViewLink",
+        )
+        .execute()
+    )
+
+    return uploaded_file
 
 
 def build_loaded_segments(
@@ -789,6 +842,12 @@ with st.form("od_route_form"):
     with col3:
         mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
+    upload_loaded_to_drive = st.checkbox(
+        "Upload loaded roadway segments ZIP to Google Drive",
+        value=False,
+        help="Uploads the loaded segments ZIP to your OD Outputs folder in Google Drive.",
+    )
+
     submitted = st.form_submit_button("Build routes")
 
 
@@ -900,12 +959,32 @@ if submitted:
                 use_container_width=True,
             )
 
+            loaded_file_name = f"{base_name}_{mode_input}_loaded_segments.zip"
+
             st.download_button(
                 label="Download loaded roadway segments shapefile ZIP",
                 data=loaded_zip_bytes,
-                file_name=f"{base_name}_{mode_input}_loaded_segments.zip",
+                file_name=loaded_file_name,
                 mime="application/zip",
             )
+
+            if upload_loaded_to_drive:
+                try:
+                    with st.spinner("Uploading loaded segments ZIP to Google Drive..."):
+                        uploaded_file_info = upload_zip_to_google_drive(
+                            loaded_zip_bytes,
+                            loaded_file_name,
+                            GOOGLE_DRIVE_FOLDER_ID,
+                        )
+
+                    st.success("Loaded roadway segments ZIP was uploaded to Google Drive.")
+                    if uploaded_file_info.get("webViewLink"):
+                        st.markdown(
+                            f"[Open uploaded file in Google Drive]({uploaded_file_info['webViewLink']})"
+                        )
+
+                except Exception as drive_exc:
+                    st.error(f"Google Drive upload failed: {drive_exc}")
 
             stv_section("Loaded roadway segments map")
             st.caption(
@@ -935,6 +1014,7 @@ with st.expander("Important notes"):
 - The key is used only for the current run and is not written to the output
 - A shapefile is downloaded as a ZIP because a shapefile is made of multiple files
 - The loaded segment output is based on Google route geometry
+- Google Drive upload requires service_account.json in the same folder as this app
 - If you need exact NYCDOT/LION roadway segment totals, the next step would be matching or snapping these routes to an official roadway centerline layer
         """
     )
