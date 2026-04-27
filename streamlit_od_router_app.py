@@ -842,12 +842,7 @@ with st.form("od_route_form"):
     with col3:
         mode_input = st.selectbox("Transport mode", MODE_OPTIONS, index=0)
 
-    upload_loaded_to_drive = st.checkbox(
-        "Upload loaded roadway segments ZIP to Google Drive",
-        value=False,
-        help="Uploads the loaded segments ZIP to your OD Outputs folder in Google Drive.",
-    )
-
+ 
     submitted = st.form_submit_button("Build routes")
 
 
