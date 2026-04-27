@@ -376,8 +376,15 @@ def upload_zip_to_google_drive(
 
     scopes = ["https://www.googleapis.com/auth/drive.file"]
 
+    gdrive_info = dict(st.secrets["gdrive"])
+
+    # Streamlit Secrets/TOML sometimes keeps private_key with literal \\n text.
+    # Google credentials need real newline characters in the PEM key.
+    if "private_key" in gdrive_info:
+        gdrive_info["private_key"] = gdrive_info["private_key"].replace("\\n", "\n")
+
     credentials = Credentials.from_service_account_info(
-        dict(st.secrets["gdrive"]),
+        gdrive_info,
         scopes=scopes,
     )
 
