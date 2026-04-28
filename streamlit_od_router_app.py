@@ -428,6 +428,18 @@ def build_loaded_segments(
     loaded_segments["RouteCount"] = loaded_segments["RouteCount"].fillna(0).astype(int)
     loaded_segments["LenMile"] = loaded_segments.geometry.length / 1609.34
 
+    # Percent of total trips in the dataset using each segment.
+    # Example: if total dataset trips = 3,000 and a segment has 400 trips,
+    # PctTrips = 13.33.
+    total_dataset_trips = routes[trips_field].sum()
+
+    if total_dataset_trips > 0:
+        loaded_segments["PctTrips"] = (
+            loaded_segments["TotalTrips"] / total_dataset_trips * 100
+        ).round(2)
+    else:
+        loaded_segments["PctTrips"] = 0.0
+
     # Shapefile field names are limited, so keep them short
     loaded_segments = loaded_segments.rename(
         columns={
@@ -506,6 +518,8 @@ def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
     # Round for cleaner tooltip display
     map_gdf["LenMile"] = map_gdf["LenMile"].round(3)
     map_gdf["TotTrips"] = map_gdf["TotTrips"].round(2)
+    if "PctTrips" in map_gdf.columns:
+        map_gdf["PctTrips"] = map_gdf["PctTrips"].round(2)
 
     center = map_gdf.geometry.unary_union.centroid
 
@@ -516,6 +530,7 @@ def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
             "width": map_gdf["width"],
             "SegID": map_gdf["SegID"],
             "TotTrips": map_gdf["TotTrips"],
+            "PctTrips": map_gdf["PctTrips"] if "PctTrips" in map_gdf.columns else 0,
             "RtCount": map_gdf["RtCount"],
             "LenMile": map_gdf["LenMile"],
         }
@@ -543,6 +558,7 @@ def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
         "html": """
         <b>Segment ID:</b> {SegID}<br/>
         <b>Total Trips:</b> {TotTrips}<br/>
+        <b>% Trips:</b> {PctTrips}%<br/>
         <b>Route Count:</b> {RtCount}<br/>
         <b>Length:</b> {LenMile} miles
         """,
@@ -749,6 +765,7 @@ This layer splits overlapping route lines into smaller shared line segments and 
 Main fields:
 - `SegID`: unique segment ID
 - `TotTrips`: total trips using that segment
+- `PctTrips`: percent of all dataset trips using that segment
 - `RtCount`: number of routes using that segment
 - `LenMile`: segment length in miles
 
@@ -888,6 +905,7 @@ if submitted:
             loaded_preview_cols = [
                 "SegID",
                 "TotTrips",
+                "PctTrips",
                 "RtCount",
                 "LenMile",
             ]
