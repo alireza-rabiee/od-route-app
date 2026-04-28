@@ -1,5 +1,3 @@
-I am using the following Python code in streamlit to calculate origin-destination routes using Google API. The output is a shapefile which I take to ArcGIS and then I count the number of Trips going through certain corridors around destination. That would tell me which corridors are the main corridors that lead to feed into the destination. This part is being done manually, is there a way that I automate this part of the process?
-
 import io
 import os
 import time
