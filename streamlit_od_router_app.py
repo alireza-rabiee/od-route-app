@@ -11,7 +11,9 @@ import polyline
 import pytz
 import requests
 import streamlit as st
-from shapely.geometry import LineString
+import pydeck as pdk
+from shapely.geometry import LineString, MultiLineString, GeometryCollection
+from shapely.ops import unary_union
 
 
 st.set_page_config(page_title="OD Route Builder", layout="wide")
@@ -29,6 +31,176 @@ WEEKDAY_OPTIONS = [
     "Sunday",
 ]
 MODE_OPTIONS = ["Auto", "Subway", "Bus"]
+
+
+def apply_stv_theme():
+    st.markdown(
+        """
+        <style>
+        :root {
+            --brand-red: #d71920;
+            --brand-dark-red: #9f1117;
+            --brand-black: #111111;
+            --brand-white: #ffffff;
+            --brand-light: #f5f5f5;
+            --brand-gray: #5f5f5f;
+        }
+
+        .stApp {
+            background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+        }
+
+        section[data-testid="stSidebar"] {
+            background-color: #111111;
+        }
+
+        .stv-hero {
+            position: relative;
+            overflow: hidden;
+            background: #d71920;
+            padding: 34px 38px;
+            border-radius: 0 0 28px 28px;
+            color: white;
+            margin: -1rem -1rem 26px -1rem;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+            min-height: 190px;
+        }
+
+        .stv-hero::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 42%;
+            height: 100%;
+            background: #111111;
+            clip-path: polygon(35% 0, 100% 0, 100% 100%, 0% 100%);
+            opacity: 0.95;
+        }
+
+        .stv-hero::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 22%;
+            width: 22%;
+            height: 100%;
+            background: #ffffff;
+            clip-path: polygon(55% 0, 100% 0, 45% 100%, 0% 100%);
+            opacity: 0.95;
+        }
+
+        .stv-hero-content {
+            position: relative;
+            z-index: 2;
+            max-width: 980px;
+        }
+
+        .stv-mark {
+            display: inline-block;
+            background: #111111;
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            padding: 7px 14px;
+            margin-bottom: 14px;
+            text-transform: uppercase;
+        }
+
+        .stv-title {
+            font-size: 36px;
+            font-weight: 850;
+            margin-bottom: 10px;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+        }
+
+        .stv-subtitle {
+            font-size: 17px;
+            line-height: 1.45;
+            color: #ffffff;
+            max-width: 760px;
+        }
+
+        .stv-card {
+            background: white;
+            border: 1px solid #e7e7e7;
+            border-radius: 18px;
+            padding: 20px 22px;
+            box-shadow: 0 6px 22px rgba(0, 0, 0, 0.07);
+            margin-bottom: 18px;
+            border-top: 5px solid #d71920;
+        }
+
+        .stv-section-title {
+            color: #111111;
+            font-size: 22px;
+            font-weight: 800;
+            margin-top: 14px;
+            margin-bottom: 8px;
+            border-left: 7px solid #d71920;
+            padding-left: 12px;
+        }
+
+        div.stButton > button,
+        div.stDownloadButton > button,
+        button[kind="primary"] {
+            border-radius: 0 !important;
+            border: 1px solid #111111 !important;
+            background-color: #111111 !important;
+            color: white !important;
+            font-weight: 750 !important;
+        }
+
+        div.stDownloadButton > button:hover,
+        div.stButton > button:hover {
+            background-color: #d71920 !important;
+            border-color: #d71920 !important;
+            color: white !important;
+        }
+
+        .stProgress > div > div > div > div {
+            background-color: #d71920;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: #111111;
+            font-weight: 800;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #e4e4e4;
+            margin: 24px 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_stv_header():
+    st.markdown(
+        """
+        <div class="stv-hero">
+            <div class="stv-hero-content">
+                <div class="stv-mark">Route analysis</div>
+                <div class="stv-title">OD Route Builder and Corridor Load Mapper</div>
+                <div class="stv-subtitle">
+                    Translate origin destination demand into route shapefiles, loaded roadway segments,
+                    and corridor level trip patterns.
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def stv_section(title: str):
+    st.markdown(f'<div class="stv-section-title">{title}</div>', unsafe_allow_html=True)
+
 
 
 @st.cache_data(show_spinner=False)
@@ -170,6 +342,226 @@ def create_zipped_shapefile(gdf: gpd.GeoDataFrame, base_name: str) -> bytes:
         return zip_buffer.getvalue()
 
 
+def build_loaded_segments(
+    routes_gdf: gpd.GeoDataFrame,
+    trips_field: str = "Trips",
+    buffer_meters: float = 1.0,
+) -> gpd.GeoDataFrame:
+    """
+    Creates a new line layer where shared route segments are split and Trips are summed.
+
+    Notes:
+    - This uses the route geometry returned by Google Directions.
+    - It does not snap to an official roadway centerline file.
+    - The midpoint buffer helps catch tiny geometry precision differences.
+    """
+
+    if routes_gdf.empty:
+        raise ValueError("Route GeoDataFrame is empty.")
+
+    routes = routes_gdf.copy()
+
+    if trips_field not in routes.columns:
+        raise ValueError(f"Trips field '{trips_field}' was not found.")
+
+    routes[trips_field] = pd.to_numeric(routes[trips_field], errors="coerce").fillna(0)
+
+    # Project to a metric CRS so the buffer is in meters
+    projected_crs = routes.estimate_utm_crs()
+    if projected_crs is None:
+        projected_crs = "EPSG:3857"
+
+    routes_proj = routes.to_crs(projected_crs)
+
+    # Split overlapping lines into shared segment pieces
+    merged = unary_union(routes_proj.geometry)
+
+    if isinstance(merged, LineString):
+        segment_geoms = [merged]
+    elif isinstance(merged, MultiLineString):
+        segment_geoms = list(merged.geoms)
+    elif isinstance(merged, GeometryCollection):
+        segment_geoms = [
+            geom
+            for geom in merged.geoms
+            if isinstance(geom, LineString) and not geom.is_empty
+        ]
+    else:
+        segment_geoms = []
+
+    segments = gpd.GeoDataFrame(
+        {"SegID": range(1, len(segment_geoms) + 1)},
+        geometry=segment_geoms,
+        crs=projected_crs,
+    )
+
+    if segments.empty:
+        raise ValueError("No valid line segments were created.")
+
+    # Create small buffers around each segment midpoint.
+    # This is safer than intersecting full lines because it helps avoid double-counting
+    # when a route only touches a segment at an endpoint.
+    midpoint_gdf = segments.copy()
+    midpoint_gdf["geometry"] = midpoint_gdf.geometry.interpolate(
+        0.5,
+        normalized=True,
+    ).buffer(buffer_meters)
+
+    joined = gpd.sjoin(
+        midpoint_gdf[["SegID", "geometry"]],
+        routes_proj[["GEOID", trips_field, "geometry"]],
+        how="left",
+        predicate="intersects",
+    )
+
+    summary = (
+        joined.groupby("SegID")
+        .agg(
+            TotalTrips=(trips_field, "sum"),
+            RouteCount=("GEOID", "count"),
+        )
+        .reset_index()
+    )
+
+    loaded_segments = segments.merge(summary, on="SegID", how="left")
+    loaded_segments["TotalTrips"] = loaded_segments["TotalTrips"].fillna(0)
+    loaded_segments["RouteCount"] = loaded_segments["RouteCount"].fillna(0).astype(int)
+    loaded_segments["LenMile"] = loaded_segments.geometry.length / 1609.34
+
+    # Shapefile field names are limited, so keep them short
+    loaded_segments = loaded_segments.rename(
+        columns={
+            "TotalTrips": "TotTrips",
+            "RouteCount": "RtCount",
+        }
+    )
+
+    return loaded_segments.to_crs("EPSG:4326")
+
+
+def make_loaded_segments_map(loaded_segments_gdf: gpd.GeoDataFrame):
+    """
+    Creates an interactive map for the loaded roadway segment layer.
+    This uses Streamlit/PyDeck PathLayer, which is reliable for polylines.
+    """
+
+    if loaded_segments_gdf.empty:
+        st.info("No loaded segments are available to map.")
+        return
+
+    map_gdf = loaded_segments_gdf.copy()
+
+    # PyDeck needs WGS84 longitude/latitude coordinates
+    if map_gdf.crs is None:
+        map_gdf = map_gdf.set_crs("EPSG:4326")
+    else:
+        map_gdf = map_gdf.to_crs("EPSG:4326")
+
+    # Explode multipart geometry, just in case
+    map_gdf = map_gdf.explode(index_parts=False).reset_index(drop=True)
+
+    # Keep only valid LineString geometry
+    map_gdf = map_gdf[
+        map_gdf.geometry.notnull()
+        & (~map_gdf.geometry.is_empty)
+        & (map_gdf.geometry.geom_type == "LineString")
+    ].copy()
+
+    if map_gdf.empty:
+        st.info("No valid LineString geometry is available to map.")
+        return
+
+    # Create path coordinate lists for PyDeck PathLayer
+    map_gdf["path"] = map_gdf.geometry.apply(
+        lambda geom: [[float(x), float(y)] for x, y in geom.coords]
+    )
+
+    max_trips = float(map_gdf["TotTrips"].max()) if "TotTrips" in map_gdf.columns else 0
+
+    def get_color(trips):
+        if max_trips <= 0:
+            return [40, 40, 40]
+
+        ratio = float(trips) / max_trips
+
+        if ratio >= 0.75:
+            return [200, 0, 0]
+        elif ratio >= 0.50:
+            return [230, 100, 0]
+        elif ratio >= 0.25:
+            return [230, 180, 0]
+        else:
+            return [0, 90, 200]
+
+    def get_width(trips):
+        if max_trips <= 0:
+            return 4
+
+        ratio = float(trips) / max_trips
+        return max(3, min(16, 3 + ratio * 13))
+
+    map_gdf["color"] = map_gdf["TotTrips"].apply(get_color)
+    map_gdf["width"] = map_gdf["TotTrips"].apply(get_width)
+
+    # Round for cleaner tooltip display
+    map_gdf["LenMile"] = map_gdf["LenMile"].round(3)
+    map_gdf["TotTrips"] = map_gdf["TotTrips"].round(2)
+
+    center = map_gdf.geometry.unary_union.centroid
+
+    map_df = pd.DataFrame(
+        {
+            "path": map_gdf["path"],
+            "color": map_gdf["color"],
+            "width": map_gdf["width"],
+            "SegID": map_gdf["SegID"],
+            "TotTrips": map_gdf["TotTrips"],
+            "RtCount": map_gdf["RtCount"],
+            "LenMile": map_gdf["LenMile"],
+        }
+    )
+
+    layer = pdk.Layer(
+        "PathLayer",
+        data=map_df,
+        get_path="path",
+        get_color="color",
+        get_width="width",
+        width_units="pixels",
+        pickable=True,
+        auto_highlight=True,
+    )
+
+    view_state = pdk.ViewState(
+        latitude=float(center.y),
+        longitude=float(center.x),
+        zoom=12,
+        pitch=0,
+    )
+
+    tooltip = {
+        "html": """
+        <b>Segment ID:</b> {SegID}<br/>
+        <b>Total Trips:</b> {TotTrips}<br/>
+        <b>Route Count:</b> {RtCount}<br/>
+        <b>Length:</b> {LenMile} miles
+        """,
+        "style": {
+            "backgroundColor": "white",
+            "color": "black",
+        },
+    }
+
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    )
+
+    st.pydeck_chart(deck, use_container_width=True)
+
+
 def build_routes(
     df: pd.DataFrame,
     api_key: str,
@@ -295,11 +687,20 @@ def build_routes(
     return gdf, error_df
 
 
-st.title("OD Route Builder")
-st.write(
-    "Upload an OD Excel or CSV file, enter your own Google Maps API key, choose the time and mode, and download the output shapefile as a ZIP package."
+apply_stv_theme()
+render_stv_header()
+
+st.markdown(
+    """
+    <div class="stv-card">
+    Upload an OD Excel or CSV file, enter your Google Maps API key, choose the arrival time and travel mode,
+    then download both the original route shapefile and the loaded roadway segment shapefile.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
+stv_section("Input setup")
 with st.expander("Required input columns"):
     st.write(REQUIRED_COLUMNS)
     st.download_button(
@@ -332,12 +733,30 @@ with st.expander("Estimated API usage and cost warning"):
         """
 - This app usually sends about **1 Google Directions request per usable OD pair**
 - Actual billing can vary by request type, SKU, monthly volume tier, and your Google Maps plan
-- As of April 2026, Google includes roughly **10,000 Directions requests per month at no cost**
-- Google bills Maps Platform services based on SKU usage, and billing must be enabled for the project
 - Entering a value below is optional and is only for a rough planning estimate
         """
     )
 
+with st.expander("Loaded segment output"):
+    st.markdown(
+        """
+In addition to the original route shapefile, the app also creates a second shapefile:
+
+**Loaded roadway segments shapefile**
+
+This layer splits overlapping route lines into smaller shared line segments and sums the `Trips` field for each segment.
+
+Main fields:
+- `SegID`: unique segment ID
+- `TotTrips`: total trips using that segment
+- `RtCount`: number of routes using that segment
+- `LenMile`: segment length in miles
+
+Important: this is based on Google route geometry, not an official roadway centerline layer.
+        """
+    )
+
+stv_section("Run settings")
 with st.form("od_route_form"):
     uploaded_file = st.file_uploader(
         "Upload OD file",
@@ -383,7 +802,7 @@ if uploaded_file is not None:
         od_pairs = estimate["od_pairs"]
         estimated_requests = estimate["estimated_requests"]
 
-        st.subheader("Run size warning")
+        stv_section("Run size warning")
         st.write(f"Usable OD pairs: **{od_pairs:,}**")
         st.write(f"Estimated API requests: **{estimated_requests:,}**")
 
@@ -424,10 +843,24 @@ if submitted:
                     mode_input,
                 )
 
-            base_name = os.path.splitext(uploaded_file.name)[0]
-            zip_bytes = create_zipped_shapefile(gdf, f"{base_name}_{mode_input}")
+            with st.spinner("Building loaded segment layer..."):
+                loaded_segments_gdf = build_loaded_segments(gdf)
 
-            st.success(f"Done. {len(gdf):,} routes were created.")
+            base_name = os.path.splitext(uploaded_file.name)[0]
+
+            route_zip_bytes = create_zipped_shapefile(
+                gdf,
+                f"{base_name}_{mode_input}",
+            )
+
+            loaded_zip_bytes = create_zipped_shapefile(
+                loaded_segments_gdf,
+                f"{base_name}_{mode_input}_loaded_segments",
+            )
+
+            st.success(
+                f"Done. {len(gdf):,} routes and {len(loaded_segments_gdf):,} loaded segments were created."
+            )
 
             preview_cols = [
                 "GEOID",
@@ -442,23 +875,51 @@ if submitted:
                 "Dep_Time",
             ]
 
-            st.subheader("Preview")
+            stv_section("Route preview")
             st.dataframe(gdf[preview_cols].head(25), use_container_width=True)
 
             st.download_button(
-                label="Download shapefile ZIP",
-                data=zip_bytes,
+                label="Download original route shapefile ZIP",
+                data=route_zip_bytes,
                 file_name=f"{base_name}_{mode_input}.zip",
                 mime="application/zip",
             )
 
+            loaded_preview_cols = [
+                "SegID",
+                "TotTrips",
+                "RtCount",
+                "LenMile",
+            ]
+
+            stv_section("Loaded segment preview")
+            st.dataframe(
+                loaded_segments_gdf[loaded_preview_cols]
+                .sort_values("TotTrips", ascending=False)
+                .head(25),
+                use_container_width=True,
+            )
+
+            st.download_button(
+                label="Download loaded roadway segments shapefile ZIP",
+                data=loaded_zip_bytes,
+                file_name=f"{base_name}_{mode_input}_loaded_segments.zip",
+                mime="application/zip",
+            )
+
+            stv_section("Loaded roadway segments map")
+            st.caption(
+                "Thicker and warmer colored lines represent higher loaded roadway segments based on total trips."
+            )
+            make_loaded_segments_map(loaded_segments_gdf)
+
             if not error_df.empty:
-                st.subheader("Rows with errors")
+                stv_section("Rows with errors")
                 st.dataframe(error_df, use_container_width=True)
 
                 csv_bytes = error_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    label="Download error log (CSV)",
+                    label="Download error log CSV",
                     data=csv_bytes,
                     file_name=f"{base_name}_{mode_input}_errors.csv",
                     mime="text/csv",
@@ -473,6 +934,7 @@ with st.expander("Important notes"):
 - This app asks each user to enter their own Google Maps API key
 - The key is used only for the current run and is not written to the output
 - A shapefile is downloaded as a ZIP because a shapefile is made of multiple files
-- This app uses the Google Directions endpoint, and Google Maps Platform billing and pricing rules can change over time
+- The loaded segment output is based on Google route geometry
+- If you need exact NYCDOT/LION roadway segment totals, the next step would be matching or snapping these routes to an official roadway centerline layer
         """
     )
