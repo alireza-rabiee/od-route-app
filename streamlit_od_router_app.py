@@ -354,32 +354,41 @@ def upload_zip_to_google_drive(
     """
     Uploads a ZIP file to a Google Drive folder using Streamlit Secrets.
 
-    Required Streamlit Secrets format:
+    Preferred Streamlit Secrets format:
 
-    [gdrive]
-    type = "service_account"
-    project_id = "..."
-    private_key_id = "..."
-    private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
-    client_email = "..."
-    client_id = "..."
-    token_uri = "https://oauth2.googleapis.com/token"
-
-    The Google Drive folder must also be shared with the service account email as Editor.
+    gdrive_json = """
+    {
+      "type": "service_account",
+      "project_id": "...",
+      "private_key_id": "...",
+      "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
+      "client_email": "...",
+      "client_id": "...",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "...",
+      "universe_domain": "googleapis.com"
+    }
     """
 
-    if "gdrive" not in st.secrets:
-        raise RuntimeError(
-            "Google Drive credentials were not found in Streamlit Secrets. "
-            "Add them under [gdrive] in your app Secrets."
-        )
+    The Google Drive folder must be shared with the service account email as Editor.
+    """
+
+    import json
 
     scopes = ["https://www.googleapis.com/auth/drive.file"]
 
-    gdrive_info = dict(st.secrets["gdrive"])
+    if "gdrive_json" in st.secrets:
+        gdrive_info = json.loads(st.secrets["gdrive_json"])
+    elif "gdrive" in st.secrets:
+        gdrive_info = dict(st.secrets["gdrive"])
+    else:
+        raise RuntimeError(
+            "Google Drive credentials were not found in Streamlit Secrets. "
+            "Add them as gdrive_json or under [gdrive]."
+        )
 
-    # Streamlit Secrets/TOML sometimes keeps private_key with literal \\n text.
-    # Google credentials need real newline characters in the PEM key.
     if "private_key" in gdrive_info:
         gdrive_info["private_key"] = gdrive_info["private_key"].replace("\\n", "\n")
 
